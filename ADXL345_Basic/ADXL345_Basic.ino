@@ -1,11 +1,13 @@
  #define LOG_OUT 1 // use the log payload function
- #define FFT_N 64 // set to 256 point fft
+ #define FFT_N 128 // set to 256 point fft
  
 //Add the SPI library so we can communicate with the ADXL345 sensor
 #include <SPI.h>
-#include <SoftwareSerial.h>
+#include <XBee.h>
 #include <FFT.h>
 #include <Time.h>
+#include <ADXL345.h>
+#include <Wire.h>
 
 //Assign the Chip Select signal to pin 10.
 int CS=10;
@@ -21,21 +23,23 @@ char DATAY1 = 0x35;	//Y-Axis Data 1
 char DATAZ0 = 0x36;	//Z-Axis Data 0
 char DATAZ1 = 0x37;	//Z-Axis Data 1
 
-const int X = 0;
-const int Y = 1;
-const int Z = 2;
-const int SENSOR_MAC_SIZE = 4;
+const int X_ACCEL = 1;
+const int Y_ACCEL = 2;
+const int Z_ACCEL = 3;
+const int PIEZO = 4;
+uint8_t X_ACCEL_ARR[] = {X_ACCEL};
+uint8_t Y_ACCEL_ARR[] = {Y_ACCEL};
+uint8_t Z_ACCEL_ARR[] = {Z_ACCEL};\
+uint8_t PIEZO_ARR[] = {PIEZO};
+
 const int TIME_SIZE = 4;
-const int TOTAL_PAYLOAD_SIZE = 3*FFT_N/2 + TIME_SIZE + 2 * SENSOR_MAC_SIZE;
+const int TYPE_SIZE = 1;
+const int TOTAL_PAYLOAD_SIZE = TYPE_SIZE + FFT_N/2 + TIME_SIZE;
 
 //This buffer will hold values read from the ADXL345 registers.
 unsigned char values[10];
 
-int xarr[FFT_N*2];
-int yarr[FFT_N*2];
-int zarr[FFT_N*2];
-uint8_t payload[3*FFT_N/2 + 2*SENSOR_MAC_SIZE + TIME_SIZE];
-uint8_t SENSOR_MAC[SENSOR_MAC_SIZE] = {0xFE, 0xFE, 0xFE, 0xFE};
+uint8_t payload[TOTAL_PAYLOAD_SIZE];
 uint8_t timeArr[TIME_SIZE];
 time_t currentTime;
 
@@ -57,60 +61,82 @@ void setup(){
   writeRegister(POWER_CTL, 0x08);  //Measurement mode  int xarr[FFT_N];
   
   for(int i = 0; i < FFT_N*2; i+=2) {
-    xarr[i+1] = 0;
-    yarr[i+1] = 0;
-    zarr[i+1] = 0;
+    fft_input[i+1] = 0;
   }
-
-  memcpy(payload, SENSOR_MAC, SENSOR_MAC_SIZE);
-  memcpy(&payload[3*FFT_N/2 + SENSOR_MAC_SIZE + TIME_SIZE], SENSOR_MAC, SENSOR_MAC_SIZE);
-  
 }
 
-void loop(){
+void updateTime() {
   currentTime = now();
   timeArr[0] = currentTime & 0xFF;
   timeArr[1] = currentTime >> 8 & 0xFF;
   timeArr[2] = currentTime >> 16 & 0xFF;
   timeArr[3] = currentTime >> 24 & 0xFF;
-  memcpy(&payload[SENSOR_MAC_SIZE], timeArr, TIME_SIZE);
-  for(int i = 0; i < FFT_N*2; i += 2) {
-  //Reading 6 bytes of data starting at register DATAX0 will retrieve the x,y and z acceleration values from the ADXL345.
-  //The results of the read operation will get stored to the values[] buffer.
-    readRegister(DATAX0, 6, values);
-  
-    //The ADXL345 gives 10-bit acceleration values, but they are stored as bytes (8-bits). To get the full value, two bytes must be combined for each axis.
-    //The X value is stored in values[0] and values[1].
-    xarr[i] = ((int)values[1]<<8)|(int)values[0];
-    //The Y value is stored in values[2] and values[3].
-    yarr[i] = ((int)values[3]<<8)|(int)values[2];
-    //The Z value is stored in values[4] and values[5].
-    zarr[i] = ((int)values[5]<<8)|(int)values[4];
-  }
-  memcpy(fft_input, xarr, FFT_N*2);
-  fft_window(); // window the data for better frequency response
-  fft_reorder(); // reorder the data before doing the fft
-  fft_run(); // process the data in the fft
-  fft_mag_log(); // take the payload of the fft
-  sei(); // turn interrupts back on
-  memcpy(&payload[FFT_N*X/2 + SENSOR_MAC_SIZE + TIME_SIZE], fft_log_out, FFT_N/2); 
-  
-  memcpy(fft_input, yarr, FFT_N*2);
-  fft_window(); // window the data for better frequency response
-  fft_reorder(); // reorder the data before doing the fft
-  fft_run(); // process the data in the fft
-  fft_mag_log(); // take the payload of the fft
-  sei(); // turn interrupts back on
-  memcpy(&payload[FFT_N*Y/2 + SENSOR_MAC_SIZE + TIME_SIZE], fft_log_out, FFT_N/2); 
+}
 
-  memcpy(fft_input, zarr, FFT_N*2);
+void updateFFTInput(uint8_t* accel_type_arr) {
+  memcpy(&payload[FFT_N/2 + TIME_SIZE], accel_type_arr, TYPE_SIZE);
+  uint8_t accel_type = accel_type_arr[0];
+  switch(accel_type) {
+    case X_ACCEL:
+      for(int i = 0; i < FFT_N*2; i += 2) {
+        readRegister(DATAX0, 6, values);
+        fft_input[i] = getXReading(values);
+        fft_input[i+1] = 0; // set odd bins to 0
+      }
+      break;
+    case Y_ACCEL:
+      for(int i = 0; i < FFT_N*2; i += 2) {
+        readRegister(DATAX0, 6, values);
+        fft_input[i] = getYReading(values);
+        fft_input[i+1] = 0; // set odd bins to 0
+      }
+      break;
+    case Z_ACCEL:
+      for(int i = 0; i < FFT_N*2; i += 2) {
+        readRegister(DATAX0, 6, values);
+        fft_input[i] = getZReading(values);
+        fft_input[i+1] = 0; // set odd bins to 0
+      }
+      break;
+  }
   fft_window(); // window the data for better frequency response
   fft_reorder(); // reorder the data before doing the fft
   fft_run(); // process the data in the fft
   fft_mag_log(); // take the payload of the fft
   sei(); // turn interrupts back on
-  memcpy(&payload[FFT_N*Z/2 + SENSOR_MAC_SIZE + TIME_SIZE], fft_log_out, FFT_N/2); 
-  
+}
+
+int getXReading(unsigned char* reading) {
+   return ((int)reading[1]<<8)|(int)reading[0];
+}
+
+int getYReading(unsigned char* reading) {
+   return ((int)reading[3]<<8)|(int)reading[2];
+}
+
+int getZReading(unsigned char* reading) {
+   return ((int)reading[5]<<8)|(int)reading[4];
+}
+
+void updatePayload(uint8_t* type) {
+  memcpy(&payload[FFT_N/2 + TIME_SIZE], type, TYPE_SIZE);
+  updateTime();
+  memcpy(&payload[0], timeArr, TIME_SIZE);
+  updateFFTInput(type);
+  memcpy(&payload[TIME_SIZE], fft_log_out, FFT_N/2);
+}
+
+void loop(){
+  updatePayload(X_ACCEL_ARR);
+  Serial.write(payload, TOTAL_PAYLOAD_SIZE);
+  delay(1000);
+
+
+  updatePayload(Y_ACCEL_ARR);
+  Serial.write(payload, TOTAL_PAYLOAD_SIZE);
+  delay(1000);
+
+  updatePayload(Z_ACCEL_ARR);
   Serial.write(payload, TOTAL_PAYLOAD_SIZE);
   delay(1000);
 }
