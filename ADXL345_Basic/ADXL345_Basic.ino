@@ -6,7 +6,6 @@
 #include <XBee.h>
 #include <FFT.h>
 #include <Time.h>
-#include <ADXL345.h>
 #include <Wire.h>
 
 //Assign the Chip Select signal to pin 10.
@@ -15,6 +14,7 @@ int CS=10;
 //This is a list of some of the registers available on the ADXL345.
 //To learn more about these and the rest of the registers on the ADXL345, read the datasheet!
 char POWER_CTL = 0x2D;	//Power Control Register
+char ADXL345_BW_RATE = 0x2c;
 char DATA_FORMAT = 0x31;
 char DATAX0 = 0x32;	//X-Axis Data 0
 char DATAX1 = 0x33;	//X-Axis Data 1
@@ -43,6 +43,7 @@ uint8_t payload[TOTAL_PAYLOAD_SIZE];
 uint8_t timeArr[TIME_SIZE];
 time_t currentTime;
 
+
 void setup(){ 
   //Initiate an SPI communication instance.
   SPI.begin();
@@ -59,10 +60,10 @@ void setup(){
   writeRegister(DATA_FORMAT, 0x01);
   //Put the ADXL345 into Measurement Mode by writing 0x08 to the POWER_CTL register.
   writeRegister(POWER_CTL, 0x08);  //Measurement mode  int xarr[FFT_N];
-  
   for(int i = 0; i < FFT_N*2; i+=2) {
     fft_input[i+1] = 0;
   }
+  setRate(1600.0);
 }
 
 void updateTime() {
@@ -129,16 +130,16 @@ void updatePayload(uint8_t* type) {
 void loop(){
   updatePayload(X_ACCEL_ARR);
   Serial.write(payload, TOTAL_PAYLOAD_SIZE);
-  delay(1000);
+//  delay(1000);
 
 
   updatePayload(Y_ACCEL_ARR);
   Serial.write(payload, TOTAL_PAYLOAD_SIZE);
-  delay(1000);
+//  delay(1000);
 
   updatePayload(Z_ACCEL_ARR);
   Serial.write(payload, TOTAL_PAYLOAD_SIZE);
-  delay(1000);
+//  delay(1000);
 }
 
 //This function will write a value to a register on the ADXL345.
@@ -177,4 +178,19 @@ void readRegister(char registerAddress, int numBytes, unsigned char * values){
   }
   //Set the Chips Select pin high to end the SPI packet.
   digitalWrite(CS, HIGH);
+}
+
+void setRate(double rate){
+  byte _b,_s;
+  int v = (int) (rate / 6.25);
+  int r = 0;
+  while (v >>= 1)
+  {
+    r++;
+  }
+  if (r <= 9) { 
+    readRegister(ADXL345_BW_RATE, 1, &_b);
+    _s = (byte) (r + 6) | (_b & B11110000);
+    writeRegister(ADXL345_BW_RATE, _s);
+  }
 }
