@@ -164,7 +164,7 @@ void loop(){
   xbee.send(zbTx);
   delay(1000);
   
-  updatePayload(PIEZO);
+  updatePayload(PIEZO_ARR);
   xbee.send(zbTx);
   delay(1000);
 }
