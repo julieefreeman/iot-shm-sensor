@@ -1,5 +1,5 @@
  #define LOG_OUT 1 // use the log payload function
- #define FFT_N 128 // set to 256 point fft
+ #define FFT_N 64 // set to 256 point fft
  
 //Add the SPI library so we can communicate with the ADXL345 sensor
 #include <SPI.h>
