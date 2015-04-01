@@ -13,6 +13,8 @@ int CS=10;
 
 //This is a list of some of the registers available on the ADXL345.
 //To learn more about these and the rest of the registers on the ADXL345, read the datasheet!
+XBee xbee;
+
 char POWER_CTL = 0x2D;	//Power Control Register
 char ADXL345_BW_RATE = 0x2c;
 char DATA_FORMAT = 0x31;
@@ -29,8 +31,12 @@ const int Z_ACCEL = 3;
 const int PIEZO = 4;
 uint8_t X_ACCEL_ARR[] = {X_ACCEL};
 uint8_t Y_ACCEL_ARR[] = {Y_ACCEL};
-uint8_t Z_ACCEL_ARR[] = {Z_ACCEL};\
+uint8_t Z_ACCEL_ARR[] = {Z_ACCEL};
 uint8_t PIEZO_ARR[] = {PIEZO};
+
+uint8_t accelX_input[FFT_N*2];
+uint8_t accelY_input[FFT_N*2];
+uint8_t accelZ_input[FFT_N*2];
 
 const int TIME_SIZE = 4;
 const int TYPE_SIZE = 1;
@@ -42,6 +48,9 @@ unsigned char values[10];
 uint8_t payload[TOTAL_PAYLOAD_SIZE];
 uint8_t timeArr[TIME_SIZE];
 time_t currentTime;
+XBeeAddress64 gatewayAddress64 = XBeeAddress64(0x00000000, 0x00000000);
+ZBTxRequest zbTx = ZBTxRequest(gatewayAddress64, payload, sizeof(payload));
+ZBTxStatusResponse txStatus = ZBTxStatusResponse();
 
 
 void setup(){ 
@@ -51,6 +60,7 @@ void setup(){
   SPI.setDataMode(SPI_MODE3);
   //Create a serial connection to display the data on the terminal.
   Serial.begin(9600);
+  xbee.setSerial(Serial);
   //Set up the Chip Select pin to be an payload from the Arduino.
   pinMode(CS, OUTPUT);
   //Before communication starts, the Chip Select pin needs to be set high.
@@ -72,6 +82,10 @@ void updateTime() {
   timeArr[1] = currentTime >> 8 & 0xFF;
   timeArr[2] = currentTime >> 16 & 0xFF;
   timeArr[3] = currentTime >> 24 & 0xFF;
+}
+
+void updateFFTInputs() {
+  
 }
 
 void updateFFTInput(uint8_t* accel_type_arr) {
@@ -129,17 +143,17 @@ void updatePayload(uint8_t* type) {
 
 void loop(){
   updatePayload(X_ACCEL_ARR);
-  Serial.write(payload, TOTAL_PAYLOAD_SIZE);
-//  delay(1000);
+  xbee.send(zbTx);
+  delay(1000);
 
 
   updatePayload(Y_ACCEL_ARR);
-  Serial.write(payload, TOTAL_PAYLOAD_SIZE);
-//  delay(1000);
+  xbee.send(zbTx);
+  delay(1000);
 
   updatePayload(Z_ACCEL_ARR);
-  Serial.write(payload, TOTAL_PAYLOAD_SIZE);
-//  delay(1000);
+  xbee.send(zbTx);
+  delay(1000);
 }
 
 //This function will write a value to a register on the ADXL345.
@@ -193,4 +207,13 @@ void setRate(double rate){
     _s = (byte) (r + 6) | (_b & B11110000);
     writeRegister(ADXL345_BW_RATE, _s);
   }
+}
+
+void readAccel(int *x, int *y, int *z) {
+  readRegister(DATAX0, 6, values); //read the acceleration data from the ADXL345
+  // each axis reading comes in 10 bit resolution, ie 2 bytes.  Least Significat Byte first!!
+  // thus we are converting both bytes in to one int
+  *x = (((int)values[1]) << 8) | values[0];   
+  *y = (((int)values[3]) << 8) | values[2];
+  *z = (((int)values[5]) << 8) | values[4];
 }
