@@ -1,12 +1,19 @@
  #define LOG_OUT 1 // use the log payload function
- #define FFT_N 128 // set to 256 point fft
- 
+ #define FFT_N 64 // set to 256 point fft
+ #define NUM_SENSORS 4
+ #define REPORTING_RATE 250
+ #define USING_XBEE 1
+ #define ACCELEROMETER_REPORTING 1
+ #define PIEZO_REPORTING 1
+ #define intToBytes(x) {(x >> 0) & 0xFF, (x >> 8) & 0xFF, (x >> 16) & 0xFF, (x >> 24) & 0xFF}
+
 //Add the SPI library so we can communicate with the ADXL345 sensor
 #include <SPI.h>
 #include <XBee.h>
 #include <FFT.h>
 #include <Time.h>
 #include <Wire.h>
+
 
 //Assign the Chip Select signal to pin 10.
 int CS=10;
@@ -25,22 +32,24 @@ char DATAY1 = 0x35;	//Y-Axis Data 1
 char DATAZ0 = 0x36;	//Z-Axis Data 0
 char DATAZ1 = 0x37;	//Z-Axis Data 1
 
-const int X_ACCEL = 1;
-const int Y_ACCEL = 2;
-const int Z_ACCEL = 3;
-const int PIEZO = 4;
+const int X_ACCEL = 0;
+const int Y_ACCEL = 1;
+const int Z_ACCEL = 2;
+const int PIEZO = 3;
+const int ACCEL_SAMPLING_RATE = 1600;
+const int PIEZO_SAMPLING_RATE = 1600;
+
+//uint8_t* FFT_SIZE = intToBytes(FFT_N/2);
 uint8_t X_ACCEL_ARR[] = {X_ACCEL};
 uint8_t Y_ACCEL_ARR[] = {Y_ACCEL};
 uint8_t Z_ACCEL_ARR[] = {Z_ACCEL};
 uint8_t PIEZO_ARR[] = {PIEZO};
 
-uint8_t accelX_input[FFT_N*2];
-uint8_t accelY_input[FFT_N*2];
-uint8_t accelZ_input[FFT_N*2];
-
-const int TIME_SIZE = 6;
+const int SAMPLING_RATE_SIZE = 4;
+const int FFT_SIZE_SIZE = 4;
+const int TIME_SIZE = 4;
 const int TYPE_SIZE = 1;
-const int TOTAL_PAYLOAD_SIZE = TYPE_SIZE + FFT_N/2 + TIME_SIZE;
+const int TOTAL_PAYLOAD_SIZE = TIME_SIZE + TYPE_SIZE + SAMPLING_RATE_SIZE + FFT_SIZE_SIZE + FFT_N/2;
 
 //This buffer will hold values read from the ADXL345 registers.
 unsigned char values[10];
@@ -51,7 +60,6 @@ time_t currentTime;
 XBeeAddress64 gatewayAddress64 = XBeeAddress64(0x00000000, 0x00000000);
 ZBTxRequest zbTx = ZBTxRequest(gatewayAddress64, payload, sizeof(payload));
 ZBTxStatusResponse txStatus = ZBTxStatusResponse();
-
 
 void setup(){ 
   //Initiate an SPI communication instance.
@@ -73,21 +81,16 @@ void setup(){
   for(int i = 0; i < FFT_N*2; i+=2) {
     fft_input[i+1] = 0;
   }
-  setRate(1600.0);
+  setRate(ACCEL_SAMPLING_RATE);
+  
 }
 
 void updateTime() {
   currentTime = now();
-  timeArr[0] = currentTime & 0xFF;
-  timeArr[1] = currentTime >> 8 & 0xFF;
-  timeArr[2] = currentTime >> 16 & 0xFF;
-  timeArr[3] = currentTime >> 24 & 0xFF;
-  timeArr[4] = currentTime >> 32 & 0xFF;
-  timeArr[5] = currentTime >> 40 & 0xFF;
-}
-
-void updateFFTInputs() {
-  
+  timeArr[3] = currentTime & 0xFF;
+  timeArr[2] = (currentTime >> 8) & 0xFF;
+  timeArr[1] = (currentTime >> 16) & 0xFF;
+  timeArr[0] = (currentTime >> 24) & 0xFF;
 }
 
 void updateFFTInput(uint8_t* accel_type_arr) {
@@ -115,6 +118,12 @@ void updateFFTInput(uint8_t* accel_type_arr) {
         fft_input[i+1] = 0; // set odd bins to 0
       }
       break;
+     case PIEZO:
+      for(int i = 0; i < FFT_N*2; i+=2) {
+        fft_input[i] = getPReading(); //current piezo reading
+        fft_input[i+1] = 0; 
+      }
+      break;
   }
   fft_window(); // window the data for better frequency response
   fft_reorder(); // reorder the data before doing the fft
@@ -135,27 +144,53 @@ int getZReading(unsigned char* reading) {
    return ((int)reading[5]<<8)|(int)reading[4];
 }
 
+int getPReading(){
+    return((int)analogRead(A0));
+}
+
 void updatePayload(uint8_t* type) {
-  memcpy(&payload[FFT_N/2 + TIME_SIZE], type, TYPE_SIZE);
   updateTime();
   memcpy(&payload[0], timeArr, TIME_SIZE);
+  memcpy(&payload[TIME_SIZE], type, TYPE_SIZE);
+  uint8_t samplingArr[4] = {(ACCEL_SAMPLING_RATE >> 0) & 0xFF, (ACCEL_SAMPLING_RATE >> 8) & 0xFF, (ACCEL_SAMPLING_RATE >> 16) & 0xFF, (ACCEL_SAMPLING_RATE >> 24) & 0xFF};
+  memcpy(&payload[TIME_SIZE + TYPE_SIZE], samplingArr, SAMPLING_RATE_SIZE);
+  uint8_t fftSizeArr[4] = {(FFT_N >> 0) & 0xFF, (FFT_N >> 8) & 0xFF, (FFT_N >> 16) & 0xFF, (FFT_N >> 24) & 0xFF};
+  memcpy(&payload[TIME_SIZE + TYPE_SIZE + SAMPLING_RATE_SIZE], fftSizeArr, FFT_SIZE_SIZE);
   updateFFTInput(type);
-  memcpy(&payload[TIME_SIZE], fft_log_out, FFT_N/2);
+  memcpy(&payload[TIME_SIZE + TYPE_SIZE + SAMPLING_RATE_SIZE + FFT_SIZE_SIZE], fft_log_out, FFT_N/2);
+}
+
+//uint8_t* intToBytes(int x) {
+//  uint8_t bytes[4] = {(x >> 0) & 0xFF, (x >> 8) & 0xFF, (x >> 16) & 0xFF, (x >> 24) & 0xFF};
+//  return bytes;
+//}
+
+void xbeeSend() {
+  #ifdef USING_XBEE
+  xbee.send(zbTx); 
+  #endif
 }
 
 void loop(){
+  #ifdef ACCELEROMETER_REPORTING
   updatePayload(X_ACCEL_ARR);
-  xbee.send(zbTx);
-  delay(1000);
-
+  xbeeSend();
+  delay(REPORTING_RATE);
 
   updatePayload(Y_ACCEL_ARR);
-  xbee.send(zbTx);
-  delay(1000);
+  xbeeSend();
+  delay(REPORTING_RATE);
 
   updatePayload(Z_ACCEL_ARR);
-  xbee.send(zbTx);
-  delay(1000);
+  xbeeSend();
+  delay(REPORTING_RATE);
+  #endif
+  
+  #ifdef PIEZO_REPORTING
+  updatePayload(PIEZO_ARR);
+  xbeeSend();
+  delay(REPORTING_RATE);
+  #endif
 }
 
 //This function will write a value to a register on the ADXL345.
