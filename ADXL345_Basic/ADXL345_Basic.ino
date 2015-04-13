@@ -1,10 +1,10 @@
  #define LOG_OUT 1 // use the log payload function
  #define FFT_N 64 // set to 256 point fft
  #define NUM_SENSORS 4
- #define REPORTING_RATE 250
+ #define REPORTING_RATE 1000
  #define USING_XBEE 1
  #define ACCELEROMETER_REPORTING 1
- #define PIEZO_REPORTING 1
+// #define PIEZO_REPORTING 1
  #define intToBytes(x) {(x >> 0) & 0xFF, (x >> 8) & 0xFF, (x >> 16) & 0xFF, (x >> 24) & 0xFF}
 
 //Add the SPI library so we can communicate with the ADXL345 sensor
@@ -152,9 +152,9 @@ void updatePayload(uint8_t* type) {
   updateTime();
   memcpy(&payload[0], timeArr, TIME_SIZE);
   memcpy(&payload[TIME_SIZE], type, TYPE_SIZE);
-  uint8_t samplingArr[4] = {(ACCEL_SAMPLING_RATE >> 0) & 0xFF, (ACCEL_SAMPLING_RATE >> 8) & 0xFF, (ACCEL_SAMPLING_RATE >> 16) & 0xFF, (ACCEL_SAMPLING_RATE >> 24) & 0xFF};
+  uint8_t samplingArr[4] = intToBytes(ACCEL_SAMPLING_RATE);
   memcpy(&payload[TIME_SIZE + TYPE_SIZE], samplingArr, SAMPLING_RATE_SIZE);
-  uint8_t fftSizeArr[4] = {(FFT_N >> 0) & 0xFF, (FFT_N >> 8) & 0xFF, (FFT_N >> 16) & 0xFF, (FFT_N >> 24) & 0xFF};
+  uint8_t fftSizeArr[4] = intToBytes(FFT_N);
   memcpy(&payload[TIME_SIZE + TYPE_SIZE + SAMPLING_RATE_SIZE], fftSizeArr, FFT_SIZE_SIZE);
   updateFFTInput(type);
   memcpy(&payload[TIME_SIZE + TYPE_SIZE + SAMPLING_RATE_SIZE + FFT_SIZE_SIZE], fft_log_out, FFT_N/2);
