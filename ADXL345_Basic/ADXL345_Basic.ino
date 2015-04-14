@@ -94,7 +94,7 @@ void updateTime() {
 }
 
 void updateFFTInput(uint8_t* accel_type_arr) {
-  memcpy(&payload[FFT_N/2], accel_type_arr, TYPE_SIZE);
+//  memcpy(&payload[FFT_N/2], accel_type_arr, TYPE_SIZE);
   uint8_t accel_type = accel_type_arr[0];
   switch(accel_type) {
     case X_ACCEL:
