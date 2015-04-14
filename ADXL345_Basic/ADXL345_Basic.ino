@@ -1,9 +1,10 @@
  #define REPORTING_RATE 1000
  #define USING_XBEE 1
  #define ACCELEROMETER_REPORTING 1
+ #define ACCEL_SAMPLING_RATE 1600
 // #define PIEZO_REPORTING 1
  #define intToBytes(x) {(x >> 0) & 0xFF, (x >> 8) & 0xFF, (x >> 16) & 0xFF, (x >> 24) & 0xFF}
- #define AVG_LENGTH = 10;
+ #define AVG_LENGTH 10
 
 //Add the SPI library so we can communicate with the ADXL345 sensor
 #include <SPI.h>
@@ -50,6 +51,7 @@ time_t currentTime;
 XBeeAddress64 gatewayAddress64 = XBeeAddress64(0x00000000, 0x00000000);
 ZBTxRequest zbTx = ZBTxRequest(gatewayAddress64, payload, sizeof(payload));
 ZBTxStatusResponse txStatus = ZBTxStatusResponse();
+int magnitude = 0;
 
 void setup(){ 
   //Initiate an SPI communication instance.
@@ -80,43 +82,27 @@ void updateTime() {
   timeArr[0] = (currentTime >> 24) & 0xFF;
 }
 
-void updateMagnitude() {
-  memcpy(&payload[0], accel_type_arr, TYPE_SIZE);
+void updateMagnitude(uint8_t* accel_type_arr) {
   uint8_t accel_type = accel_type_arr[0];
+  int sum = 0;
   switch(accel_type) {
-    case X_ACCEL:
-      for(int i = 0; i < FFT_N*2; i += 2) {
+    case ACCEL:
+      for(int i = 0; i < AVG_LENGTH; i += 1) {
         readRegister(DATAX0, 6, values);
-        fft_input[i] = getXReading(values);
-        fft_input[i+1] = 0; // set odd bins to 0
+        int x = getXReading(values);
+        int y = getYReading(values);
+        int z = getZReading(values);
+        sum += sqrt(x*x + y*y + z*z);
       }
-      break;
-    case Y_ACCEL:
-      for(int i = 0; i < FFT_N*2; i += 2) {
-        readRegister(DATAX0, 6, values);
-        fft_input[i] = getYReading(values);
-        fft_input[i+1] = 0; // set odd bins to 0
-      }
-      break;
-    case Z_ACCEL:
-      for(int i = 0; i < FFT_N*2; i += 2) {
-        readRegister(DATAX0, 6, values);
-        fft_input[i] = getZReading(values);
-        fft_input[i+1] = 0; // set odd bins to 0
-      }
+      magnitude = sum/AVG_LENGTH;
       break;
      case PIEZO:
-      for(int i = 0; i < FFT_N*2; i+=2) {
-        fft_input[i] = getPReading(); //current piezo reading
-        fft_input[i+1] = 0; 
+      for(int i = 0; i < AVG_LENGTH; i+=2) {
+        int reading = getPReading(); //current piezo reading
+        //...
       }
       break;
   }
-  fft_window(); // window the data for better frequency response
-  fft_reorder(); // reorder the data before doing the fft
-  fft_run(); // process the data in the fft
-  fft_mag_log(); // take the payload of the fft
-  sei(); // turn interrupts back on
 }
 
 int getXReading(unsigned char* reading) {
@@ -138,18 +124,9 @@ int getPReading(){
 void updatePayload(uint8_t* type) {
   updateTime();
   memcpy(&payload[0], type, TYPE_SIZE);
-  uint8_t samplingArr[4] = intToBytes(ACCEL_SAMPLING_RATE);
-  memcpy(&payload[TYPE_SIZE], samplingArr, SAMPLING_RATE_SIZE);
-  uint8_t fftSizeArr[4] = intToBytes(FFT_N);
-  memcpy(&payload[TYPE_SIZE + SAMPLING_RATE_SIZE], fftSizeArr, FFT_SIZE_SIZE);
-  updateFFTInput(type);
-  memcpy(&payload[TYPE_SIZE + SAMPLING_RATE_SIZE + FFT_SIZE_SIZE], fft_log_out, FFT_N/2);
+  updateMagnitude(type);
+  memcpy(&payload[TYPE_SIZE], &magnitude, MAGNITUDE_SIZE);
 }
-
-//uint8_t* intToBytes(int x) {
-//  uint8_t bytes[4] = {(x >> 0) & 0xFF, (x >> 8) & 0xFF, (x >> 16) & 0xFF, (x >> 24) & 0xFF};
-//  return bytes;
-//}
 
 void xbeeSend() {
   #ifdef USING_XBEE
@@ -159,15 +136,7 @@ void xbeeSend() {
 
 void loop(){
   #ifdef ACCELEROMETER_REPORTING
-  updatePayload(X_ACCEL_ARR);
-  xbeeSend();
-  delay(REPORTING_RATE);
-
-  updatePayload(Y_ACCEL_ARR);
-  xbeeSend();
-  delay(REPORTING_RATE);
-
-  updatePayload(Z_ACCEL_ARR);
+  updatePayload(ACCEL_ARR);
   xbeeSend();
   delay(REPORTING_RATE);
   #endif
