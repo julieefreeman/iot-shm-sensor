@@ -1,16 +1,13 @@
- #define LOG_OUT 1 // use the log payload function
- #define FFT_N 128 // set to 256 point fft
- #define NUM_SENSORS 4
  #define REPORTING_RATE 1000
  #define USING_XBEE 1
  #define ACCELEROMETER_REPORTING 1
 // #define PIEZO_REPORTING 1
  #define intToBytes(x) {(x >> 0) & 0xFF, (x >> 8) & 0xFF, (x >> 16) & 0xFF, (x >> 24) & 0xFF}
+ #define AVG_LENGTH = 10;
 
 //Add the SPI library so we can communicate with the ADXL345 sensor
 #include <SPI.h>
 #include <XBee.h>
-#include <FFT.h>
 #include <Time.h>
 #include <Wire.h>
 
@@ -32,24 +29,17 @@ char DATAY1 = 0x35;	//Y-Axis Data 1
 char DATAZ0 = 0x36;	//Z-Axis Data 0
 char DATAZ1 = 0x37;	//Z-Axis Data 1
 
-const int X_ACCEL = 0;
-const int Y_ACCEL = 1;
-const int Z_ACCEL = 2;
-const int PIEZO = 3;
-const int ACCEL_SAMPLING_RATE = 200;
-const int PIEZO_SAMPLING_RATE = 1600;
+const int ACCEL = 0;
+const int PIEZO = 1;
 
-//uint8_t* FFT_SIZE = intToBytes(FFT_N/2);
-uint8_t X_ACCEL_ARR[] = {X_ACCEL};
-uint8_t Y_ACCEL_ARR[] = {Y_ACCEL};
-uint8_t Z_ACCEL_ARR[] = {Z_ACCEL};
+
+uint8_t ACCEL_ARR[] = {ACCEL};
 uint8_t PIEZO_ARR[] = {PIEZO};
 
 const int TIME_SIZE = 4;
-const int SAMPLING_RATE_SIZE = 4;
-const int FFT_SIZE_SIZE = 4;
 const int TYPE_SIZE = 1;
-const int TOTAL_PAYLOAD_SIZE = TYPE_SIZE + SAMPLING_RATE_SIZE + FFT_SIZE_SIZE + FFT_N/2;
+const int MAGNITUDE_SIZE = 4;
+const int TOTAL_PAYLOAD_SIZE = TYPE_SIZE + MAGNITUDE_SIZE;
 
 //This buffer will hold values read from the ADXL345 registers.
 unsigned char values[10];
@@ -78,9 +68,6 @@ void setup(){
   writeRegister(DATA_FORMAT, 0x01);
   //Put the ADXL345 into Measurement Mode by writing 0x08 to the POWER_CTL register.
   writeRegister(POWER_CTL, 0x08);  //Measurement mode  int xarr[FFT_N];
-  for(int i = 0; i < FFT_N*2; i+=2) {
-    fft_input[i+1] = 0;
-  }
   setRate(ACCEL_SAMPLING_RATE);
   
 }
@@ -93,8 +80,8 @@ void updateTime() {
   timeArr[0] = (currentTime >> 24) & 0xFF;
 }
 
-void updateFFTInput(uint8_t* accel_type_arr) {
-  memcpy(&payload[FFT_N/2], accel_type_arr, TYPE_SIZE);
+void updateMagnitude() {
+  memcpy(&payload[0], accel_type_arr, TYPE_SIZE);
   uint8_t accel_type = accel_type_arr[0];
   switch(accel_type) {
     case X_ACCEL:
