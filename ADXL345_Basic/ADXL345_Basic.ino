@@ -1,5 +1,5 @@
  #define LOG_OUT 1 // use the log payload function
- #define FFT_N 64 // set to 256 point fft
+ #define FFT_N 128 // set to 256 point fft
  #define NUM_SENSORS 4
  #define REPORTING_RATE 1000
  #define USING_XBEE 1
@@ -36,7 +36,7 @@ const int X_ACCEL = 0;
 const int Y_ACCEL = 1;
 const int Z_ACCEL = 2;
 const int PIEZO = 3;
-const int ACCEL_SAMPLING_RATE = 1600;
+const int ACCEL_SAMPLING_RATE = 200;
 const int PIEZO_SAMPLING_RATE = 1600;
 
 //uint8_t* FFT_SIZE = intToBytes(FFT_N/2);
@@ -45,11 +45,11 @@ uint8_t Y_ACCEL_ARR[] = {Y_ACCEL};
 uint8_t Z_ACCEL_ARR[] = {Z_ACCEL};
 uint8_t PIEZO_ARR[] = {PIEZO};
 
+const int TIME_SIZE = 4;
 const int SAMPLING_RATE_SIZE = 4;
 const int FFT_SIZE_SIZE = 4;
-const int TIME_SIZE = 4;
 const int TYPE_SIZE = 1;
-const int TOTAL_PAYLOAD_SIZE = TIME_SIZE + TYPE_SIZE + SAMPLING_RATE_SIZE + FFT_SIZE_SIZE + FFT_N/2;
+const int TOTAL_PAYLOAD_SIZE = TYPE_SIZE + SAMPLING_RATE_SIZE + FFT_SIZE_SIZE + FFT_N/2;
 
 //This buffer will hold values read from the ADXL345 registers.
 unsigned char values[10];
@@ -94,7 +94,7 @@ void updateTime() {
 }
 
 void updateFFTInput(uint8_t* accel_type_arr) {
-  memcpy(&payload[FFT_N/2 + TIME_SIZE], accel_type_arr, TYPE_SIZE);
+  memcpy(&payload[FFT_N/2], accel_type_arr, TYPE_SIZE);
   uint8_t accel_type = accel_type_arr[0];
   switch(accel_type) {
     case X_ACCEL:
@@ -150,14 +150,13 @@ int getPReading(){
 
 void updatePayload(uint8_t* type) {
   updateTime();
-  memcpy(&payload[0], timeArr, TIME_SIZE);
-  memcpy(&payload[TIME_SIZE], type, TYPE_SIZE);
+  memcpy(&payload[0], type, TYPE_SIZE);
   uint8_t samplingArr[4] = intToBytes(ACCEL_SAMPLING_RATE);
-  memcpy(&payload[TIME_SIZE + TYPE_SIZE], samplingArr, SAMPLING_RATE_SIZE);
+  memcpy(&payload[TYPE_SIZE], samplingArr, SAMPLING_RATE_SIZE);
   uint8_t fftSizeArr[4] = intToBytes(FFT_N);
-  memcpy(&payload[TIME_SIZE + TYPE_SIZE + SAMPLING_RATE_SIZE], fftSizeArr, FFT_SIZE_SIZE);
+  memcpy(&payload[TYPE_SIZE + SAMPLING_RATE_SIZE], fftSizeArr, FFT_SIZE_SIZE);
   updateFFTInput(type);
-  memcpy(&payload[TIME_SIZE + TYPE_SIZE + SAMPLING_RATE_SIZE + FFT_SIZE_SIZE], fft_log_out, FFT_N/2);
+  memcpy(&payload[TYPE_SIZE + SAMPLING_RATE_SIZE + FFT_SIZE_SIZE], fft_log_out, FFT_N/2);
 }
 
 //uint8_t* intToBytes(int x) {
